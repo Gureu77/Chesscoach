@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <base href="./">
+  <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
@@ -130,12 +130,9 @@
     }
   </style>
 
-  <!-- Flutter core JS - caricato prima degli altri script -->
-  <script src="./flutter.js"></script>
-
   <!-- IMPORTANTE: La variabile serviceWorkerVersion viene sostituita al momento della build -->
   <script>
-    const serviceWorkerVersion = "3601557395";
+    var serviceWorkerVersion = null;
     var appStarted = false; // Flag per verificare che l'app sia iniziata
   </script>
   
@@ -296,7 +293,7 @@
           }, 10000); // 10 secondi di timeout
           
           // Carica Stockfish come Worker
-          stockfishInstance = new Worker('./stockfish.js');
+          stockfishInstance = new Worker('stockfish.js');
           updateProgress(50);
           
           // Configura l'handler dei messaggi
@@ -368,10 +365,37 @@
       };
     };
     
-    // Funzione per inizializzare Flutter
-    function inizializzaFlutter() {
+    // Evento di caricamento della finestra
+    window.addEventListener('load', function() {
+      console.log("Window loaded");
+      updateSplashStatus("Caricamento risorse...");
+      updateProgress(10);
+      startProgressAnimation();
+      
+      // Verifichiamo che il file stockfish.js sia accessibile
+      fetch('stockfish.js')
+        .then(response => {
+          console.log("Verifica accesso a stockfish.js - Status:", response.status);
+          if (!response.ok) {
+            console.error("Impossibile accedere al file stockfish.js");
+            updateSplashStatus("ERRORE: File stockfish.js non trovato");
+          } else {
+            console.log("File stockfish.js accessibile");
+            updateProgress(20);
+            // Avvia il tentativo di inizializzazione di Stockfish
+            setTimeout(() => {
+              tryInitStockfish();
+            }, 500);
+          }
+        })
+        .catch(error => {
+          console.error("Errore nell'accesso a stockfish.js:", error);
+          updateSplashStatus("ERRORE: " + error.message);
+          proceedWithoutStockfish();
+        });
+        
       // Download main.dart.js
-      window.flutter.loader.loadEntrypoint({
+      _flutter.loader.loadEntrypoint({
         serviceWorker: {
           serviceWorkerVersion: serviceWorkerVersion,
         },
@@ -391,64 +415,11 @@
           });
         }
       });
-    }
-    
-    // Evento di caricamento della finestra
-    window.addEventListener('load', function() {
-      console.log("Window loaded");
-      updateSplashStatus("Caricamento risorse...");
-      updateProgress(10);
-      startProgressAnimation();
-      
-      // Verifichiamo che il file stockfish.js sia accessibile
-      fetch('./stockfish.js')
-        .then(response => {
-          console.log("Verifica accesso a stockfish.js - Status:", response.status);
-          if (!response.ok) {
-            console.error("Impossibile accedere al file stockfish.js");
-            updateSplashStatus("ERRORE: File stockfish.js non trovato");
-            proceedWithoutStockfish();
-          } else {
-            console.log("File stockfish.js accessibile");
-            updateProgress(20);
-            // Avvia il tentativo di inizializzazione di Stockfish
-            setTimeout(() => {
-              tryInitStockfish();
-            }, 500);
-          }
-        })
-        .catch(error => {
-          console.error("Errore nell'accesso a stockfish.js:", error);
-          updateSplashStatus("ERRORE: " + error.message);
-          proceedWithoutStockfish();
-        });
-        
-      // Aspetta che flutter.js sia caricato
-      if (window.flutter) {
-        inizializzaFlutter();
-      } else {
-        // Se flutter.js non è ancora caricato, aggiungiamo un listener per quando sarà pronto
-        console.log("In attesa che Flutter sia disponibile...");
-        // Controlliamo periodicamente se flutter è disponibile
-        const checkFlutter = setInterval(() => {
-          if (window.flutter) {
-            clearInterval(checkFlutter);
-            console.log("Flutter è ora disponibile, inizializzazione...");
-            inizializzaFlutter();
-          }
-        }, 100);
-        
-        // Timeout dopo 10 secondi
-        setTimeout(() => {
-          clearInterval(checkFlutter);
-          if (!window.flutter) {
-            console.error("Timeout: Flutter non è diventato disponibile");
-            updateSplashStatus("ERRORE: Flutter non si è caricato correttamente");
-          }
-        }, 10000);
-      }
     });
   </script>
+  
+  <!-- Flutter core JS -->
+  <script src="flutter.js" defer></script>
 </head>
 <body>
   <!-- Splash screen HTML -->
