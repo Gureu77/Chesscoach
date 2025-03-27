@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Un'app per l'analisi delle partite di scacchi.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Chess Coach">
+  <link rel="apple-touch-icon" href="./icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="./favicon.png"/>
+
+  <title>Chess Coach</title>
+  <link rel="manifest" href="./manifest.json">
+
+  <!-- Stile per lo splash screen -->
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #E3F2FD; /* Blu chiaro (blue[50]) */
+      font-family: 'Roboto', Arial, sans-serif;
+    }
+
+    .splash-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 1s ease-out; /* Transizione più lunga per un fade out più morbido */
+      background-color: #E3F2FD; /* Blu chiaro (blue[50]) - sfondo uguale a body */
+    }
+
+    .splash-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .splash-icon {
+      width: 150px; /* Icona più grande */
+      height: 150px; /* Icona più grande */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 30px;
+      animation: fadeIn 1s ease-in;
+    }
+    
+    .splash-icon svg {
+      width: 100%;
+      height: 100%;
+      fill: #2196F3; /* Blu (blue[500]) */
+    }
+
+    .splash-title {
+      font-size: 48px; /* Testo più grande */
+      font-weight: 700;
+      color: #2196F3; /* Blu (blue[500]) */
+      margin-bottom: 50px;
+      animation: fadeIn 1.5s ease-in;
+    }
+
+    /* Progress Bar Container */
+    .progress-container {
+      width: 80%;
+      max-width: 400px;
+      height: 8px; /* Barra leggermente più alta */
+      background-color: rgba(33, 150, 243, 0.2);
+      border-radius: 4px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+
+    /* Progress Bar */
+    .progress-bar {
+      height: 100%;
+      width: 5%;
+      background-color: #2196F3; /* Blu (blue[500]) */
+      border-radius: 4px;
+      transition: width 0.4s ease;
+    }
+
+    /* Progress Bar Animation */
+    @keyframes progressAnimation {
+      0% { width: 5%; }
+      20% { width: 25%; }
+      50% { width: 50%; }
+      70% { width: 75%; }
+      100% { width: 98%; }
+    }
+
+    .animate-progress {
+      animation: progressAnimation 8s ease-in-out;
+      width: 98%;
+    }
+
+    .complete-progress {
+      width: 100%;
+    }
+
+    .status-message {
+      font-size: 20px; /* Testo più grande */
+      color: #1565C0; /* Blu scuro (blue[800]) */
+      font-weight: 500; /* Testo più in risalto */
+    }
+
+    @keyframes fadeIn {
+      0% { opacity: 0; }
+      100% { opacity: 1; }
+    }
+
+    .hidden {
+      opacity: 0;
+      pointer-events: none;
+      z-index: -1; /* Sposta dietro l'app Flutter */
+    }
+  </style>
+
+  <!-- IMPORTANTE: La variabile serviceWorkerVersion viene sostituita al momento della build -->
+  <script>
+    const serviceWorkerVersion = "2086298519";
+    var appStarted = false; // Flag per verificare che l'app sia iniziata
+  </script>
+  
+  <!-- Script per Stockfish.js -->
+  <script>
+    // Variabili globali
+    let stockfishInstance = null;
+    let stockfishInitAttempted = false;
+    let stockfishInitialized = false;
+    let flutterInitialized = false;
+    
+    // Variabile per gestire lo stato di caricamento
+    let loadingStatus = {
+      stockfish: false,
+      flutter: false,
+      appRunning: false // Flag per segnalare che l'app è in esecuzione
+    };
+    
+    // Variabili per la gestione dei comandi
+    var stockfishReady = false;
+    var stockfishQueue = [];
+    
+    // Variabile per memorizzare i messaggi finché onStockfishMessage non è disponibile
+    let stockfishMessageQueue = [];
+    
+    // Aggiorna il messaggio di stato dello splash screen
+    function updateSplashStatus(message) {
+      const statusElement = document.getElementById('splash-status');
+      if (statusElement) {
+        statusElement.textContent = message;
+      }
+    }
+    
+    // Aggiorna la barra di progresso
+    function updateProgress(progress) {
+      const progressBar = document.getElementById('progress-bar');
+      if (progressBar) {
+        // Converti il progresso (0-100) in una larghezza percentuale
+        progressBar.style.width = progress + '%';
+      }
+    }
+    
+    // Avvia l'animazione automatica di progresso
+    function startProgressAnimation() {
+      const progressBar = document.getElementById('progress-bar');
+      if (progressBar) {
+        progressBar.classList.add('animate-progress');
+      }
+    }
+    
+    // Completa la barra di progresso
+    function completeProgress() {
+      const progressBar = document.getElementById('progress-bar');
+      if (progressBar) {
+        // Rimuovi l'animazione e imposta direttamente al 100%
+        progressBar.classList.remove('animate-progress');
+        progressBar.classList.add('complete-progress');
+      }
+    }
+    
+    // Funzione per nascondere lo splash screen HTML
+    window.hideLoader = function() {
+      console.log("Nascondendo il loader HTML...");
+      const splash = document.getElementById('splash-screen');
+      if (splash) {
+        // Completa la barra di progresso
+        const progressBar = document.getElementById('progress-bar');
+        if (progressBar) {
+          progressBar.classList.add('complete-progress');
+        }
+        
+        // Cambia il messaggio di stato
+        const statusElement = document.getElementById('splash-status');
+        if (statusElement) {
+          statusElement.textContent = "Pronto!";
+        }
+        
+        // Attendi un po' prima di nascondere lo splash screen
+        setTimeout(() => {
+          splash.classList.add('hidden');
+          
+          // Rimuovi completamente dopo l'animazione
+          setTimeout(() => {
+            splash.style.display = 'none';
+            splash.remove();
+          }, 1000);
+        }, 500);
+      }
+    };
+    
+    // Funzione per gestire i messaggi di Stockfish
+    function handleStockfishMessage(message) {
+      console.log("Stockfish output:", message);
+      
+      // Se onStockfishMessage è disponibile, invia il messaggio direttamente
+      if (typeof window.onStockfishMessage === 'function') {
+        try {
+          window.onStockfishMessage(message);
+        } catch (e) {
+          console.error("Errore nell'invio del messaggio a Dart:", e);
+        }
+      } else {
+        // Altrimenti, salva il messaggio nella coda
+        console.log("onStockfishMessage non ancora disponibile, accodamento messaggio");
+        stockfishMessageQueue.push(message);
+      }
+      
+      // Se riceviamo "uciok", significa che il motore è pronto
+      if (message.includes("uciok")) {
+        console.log("Stockfish è pronto!");
+        stockfishReady = true;
+        stockfishInitialized = true;
+        loadingStatus.stockfish = true;
+        
+        // Salva lo stato globalmente per permettere a Dart di verificarlo
+        window.stockfishInitializedAt = new Date().getTime();
+        
+        updateSplashStatus("Avvio applicazione...");
+        updateProgress(70);
+        processQueue();
+      }
+    }
+    
+    // Funzione per inviare tutti i messaggi in coda a Dart
+    function processStockfishMessageQueue() {
+      if (typeof window.onStockfishMessage === 'function' && stockfishMessageQueue.length > 0) {
+        console.log(`Invio di ${stockfishMessageQueue.length} messaggi in coda a Dart`);
+        for (const message of stockfishMessageQueue) {
+          try {
+            window.onStockfishMessage(message);
+          } catch (e) {
+            console.error("Errore nell'invio del messaggio da coda a Dart:", e);
+          }
+        }
+        stockfishMessageQueue = []; // Svuota la coda
+      }
+    }
+    
+    // Esponi la funzione per processare la coda di messaggi
+    window.processStockfishMessageQueue = processStockfishMessageQueue;
+    
+    // Funzione per tentare l'inizializzazione di Stockfish
+    function tryInitStockfish() {
+      if (stockfishInitAttempted) return; // Evita tentativi multipli simultanei
+      
+      stockfishInitAttempted = true;
+      console.log("Tentativo di inizializzazione di Stockfish.js...");
+      updateSplashStatus("Caricamento motore di analisi...");
+      
+      try {
+        // Verifica se l'API Worker è disponibile
+        if (typeof Worker !== 'undefined') {
+          // Impostiamo un timeout per l'inizializzazione
+          const stockfishTimeout = setTimeout(() => {
+            console.warn("Timeout nell'inizializzazione di Stockfish - continuando senza");
+            // Continuiamo senza bloccare il flusso principale
+            proceedWithoutStockfish();
+          }, 10000); // 10 secondi di timeout
+          
+          // Carica Stockfish come Worker
+          stockfishInstance = new Worker('stockfish.js');
+          updateProgress(50);
+          
+          // Configura l'handler dei messaggi
+          stockfishInstance.onmessage = function(event) {
+            handleStockfishMessage(event.data);
+          };
+          
+          // Inizializza il motore UCI
+          stockfishInstance.postMessage("uci");
+          
+        } else {
+          console.warn("Web Workers non supportati - continuando senza Stockfish");
+          proceedWithoutStockfish();
+        }
+      } catch (error) {
+        console.error("Errore nell'inizializzazione di Stockfish:", error);
+        proceedWithoutStockfish();
+      }
+    }
+    
+    // Funzione per procedere senza Stockfish
+    function proceedWithoutStockfish() {
+      updateSplashStatus("Avvio applicazione senza analisi...");
+      updateProgress(70);
+      stockfishInitAttempted = true;
+    }
+
+    // Processa la coda di comandi
+    function processQueue() {
+      while (stockfishQueue.length > 0) {
+        var cmd = stockfishQueue.shift();
+        sendToStockfish(cmd, true);
+      }
+    }
+
+    // Funzione per inviare comandi a Stockfish
+    function sendToStockfish(command, skipQueue = false) {
+      if (stockfishInstance) {
+        if (stockfishReady || skipQueue) {
+          console.log("To Stockfish: " + command);
+          stockfishInstance.postMessage(command);
+        } else {
+          // Accoda il comando
+          console.log("Accodamento comando: " + command);
+          stockfishQueue.push(command);
+        }
+      } else {
+        console.error("Stockfish non è stato inizializzato");
+        if (typeof onStockfishMessage === 'function') {
+          onStockfishMessage("ERRORE: Stockfish non è stato inizializzato");
+        }
+      }
+    }
+
+    // Funzioni esposte per Dart
+    window.stockfishInit = tryInitStockfish;
+    window.stockfishSendCommand = sendToStockfish;
+    window.stockfishIsReady = function() {
+      // Stampa il valore per debug
+      console.log("stockfishIsReady chiamato, valore:", stockfishReady);
+      return stockfishReady;
+    };
+    // Funzione per ottenere lo stato di Stockfish
+    window.getStockfishState = function() {
+      return {
+        ready: stockfishReady,
+        initialized: stockfishInitialized,
+        initializedAt: window.stockfishInitializedAt || 0
+      };
+    };
+    
+    // Evento di caricamento della finestra
+    window.addEventListener('load', function() {
+      console.log("Window loaded");
+      updateSplashStatus("Caricamento risorse...");
+      updateProgress(10);
+      startProgressAnimation();
+      
+      // Verifichiamo che il file stockfish.js sia accessibile
+      fetch('stockfish.js')
+        .then(response => {
+          console.log("Verifica accesso a stockfish.js - Status:", response.status);
+          if (!response.ok) {
+            console.error("Impossibile accedere al file stockfish.js");
+            updateSplashStatus("ERRORE: File stockfish.js non trovato");
+          } else {
+            console.log("File stockfish.js accessibile");
+            updateProgress(20);
+            // Avvia il tentativo di inizializzazione di Stockfish
+            setTimeout(() => {
+              tryInitStockfish();
+            }, 500);
+          }
+        })
+        .catch(error => {
+          console.error("Errore nell'accesso a stockfish.js:", error);
+          updateSplashStatus("ERRORE: " + error.message);
+          proceedWithoutStockfish();
+        });
+        
+      // Download main.dart.js
+      _flutter.loader.loadEntrypoint({
+        serviceWorker: {
+          serviceWorkerVersion: serviceWorkerVersion,
+        },
+        onEntrypointLoaded: function(engineInitializer) {
+          updateProgress(80);
+          updateSplashStatus("Avvio applicazione...");
+          
+          // Non nascondere ancora lo splash screen
+          engineInitializer.initializeEngine().then(function(appRunner) {
+            // Avvia l'app Flutter
+            appRunner.runApp();
+            // L'app Flutter chiamerà hideLoader() quando sarà pronta
+          }).catch(error => {
+            console.error("Errore nell'avvio di Flutter:", error);
+            // Mostra un messaggio di errore nello splash screen
+            updateSplashStatus("Errore nell'avvio dell'applicazione. Ricarica la pagina.");
+          });
+        }
+      });
+    });
+  </script>
+  
+  <!-- Flutter core JS -->
+  <script src="flutter.js" defer></script>
+</head>
+<body>
+  <!-- Splash screen HTML -->
+  <div id="splash-screen" class="splash-screen">
+    <div class="splash-content">
+      <div class="splash-icon">
+        <!-- Icona di scacchi (pezzo del re) -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512">
+          <!-- Font Awesome Pro 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. -->
+          <path d="M224 0c17.7 0 32 14.3 32 32V48h16c17.7 0 32 14.3 32 32s-14.3 32-32 32H256v48H408c22.1 0 40 17.9 40 40c0 5.3-1 10.5-3.1 15.4L368 400H80L3.1 215.4C1 210.5 0 205.3 0 200c0-22.1 17.9-40 40-40H192V112H176c-17.7 0-32-14.3-32-32s14.3-32 32-32h16V32c0-17.7 14.3-32 32-32zM38.6 473.4L80 432H368l41.4 41.4c4.2 4.2 6.6 10 6.6 16c0 12.5-10.1 22.6-22.6 22.6H54.6C42.1 512 32 501.9 32 489.4c0-6 2.4-11.8 6.6-16z"/>
+        </svg>
+      </div>
+      <div class="splash-title">Chess Coach</div>
+      
+      <!-- Barra di progresso invece dello spinner -->
+      <div class="progress-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      
+      <div id="splash-status" class="status-message">Inizializzazione...</div>
+    </div>
+  </div>
+</body>
+</html>
